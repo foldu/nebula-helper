@@ -3,7 +3,7 @@ from argparse import ArgumentParser
 from dataclasses import dataclass
 from ipaddress import IPv4Address, IPv4Network
 from pathlib import Path
-from typing import Set
+from typing import Set, Dict
 import json
 import os
 import subprocess
@@ -30,7 +30,7 @@ def main():
     fqdn = f"{args.host}.{settings.domain}"
     ip = args.ip
     assert args.ip not in settings.used_ips, "ip already assigned"
-    assert fqdn not in settings.used_fqdns, "fqdn already assigned"
+    assert fqdn not in settings.assignments, "fqdn already assigned"
 
     # NOTE: pythons funny scoping makes this actually work
     if ip is None:
@@ -52,8 +52,7 @@ def main():
         nebula_args += ["-groups", args.groups]
     run_nebula_cert("sign", nebula_args)
 
-    settings.used_fqdns.add(fqdn)
-    settings.used_ips.add(ip)
+    settings.add_assignment(fqdn, ip)
 
     tar_name = "send_me.tar"
     with tarfile.open(tar_name, "w") as tar:
@@ -86,7 +85,7 @@ def initial_setup():
     run_nebula_cert("ca", ["-name", organization])
     with open("settings.json", "w") as fh:
         settings = Settings(
-            domain=domain_name, network=network_range, used_fqdns=set(), used_ips=set()
+            domain=domain_name, network=network_range, used_ips=set(), assignments={}
         )
         json.dump(settings.to_json_obj(), fh, indent=4, sort_keys=True)
 
@@ -96,14 +95,17 @@ class Settings:
     network: IPv4Network
     domain: str
     used_ips: Set[IPv4Address]
-    used_fqdns: Set[str]
+    assignments: Dict[str, IPv4Address]
+
+    def add_assignment(self, fqdn: str, ip: IPv4Address):
+        self.used_ips.add(ip)
+        self.assignments[fqdn] = ip
 
     def to_json_obj(self):
         return {
-            "used_fqdns": list(self.used_fqdns),
-            "used_ips": [str(ip) for ip in self.used_ips],
             "network": str(self.network),
             "domain": self.domain,
+            "assignments": {fqdn: str(ip) for fqdn, ip in self.assignments.items()},
         }
 
     @staticmethod
@@ -112,9 +114,11 @@ class Settings:
             network=IPv4Network(
                 obj["network"],
             ),
-            used_ips={IPv4Address(ip) for ip in obj["used_ips"]},
-            used_fqdns=set(obj["used_fqdns"]),
             domain=obj["domain"],
+            used_ips=set(map(IPv4Address, obj["assignments"].values())),
+            assignments={
+                fqdn: IPv4Address(ip) for fqdn, ip in obj["assignments"].items()
+            },
         )
 
 
