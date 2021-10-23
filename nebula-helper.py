@@ -12,7 +12,7 @@ import tarfile
 
 
 def main():
-    if not Path("ca.crt").is_file:
+    if not Path("ca.crt").is_file():
         initial_setup()
 
     args = ArgumentParser()
